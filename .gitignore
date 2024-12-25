@@ -1,0 +1,24 @@
+# Build directories
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.spec
+
+# Environment
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# High scores data
+data/high_scores.json
+
+# System files
+.DS_Store
+Thumbs.db
