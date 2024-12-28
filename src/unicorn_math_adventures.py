@@ -121,14 +121,20 @@ def save_high_score(score: int, player_name: str) -> None:
     with open(HIGH_SCORES_FILE, 'w') as f:
         json.dump(scores, f)
 
-def show_game_over(score: int, max_streak: int) -> None:
+def show_game_over(score: int, max_streak: int) -> bool:
     """Show game over screen with final score and high scores."""
     high_scores = load_high_scores()
-    player_name = FAMILY["player"]  # Default name
+    player_name = ""  # Start with empty name field
     name_input_active = True
     score_saved = False  # Track if score has been saved
     message = ""  # For displaying save status messages
     message_timer = 0
+    
+    # Clear screen and events before showing game over screen
+    screen.fill(PINK)
+    pygame.display.flip()
+    pygame.event.clear()
+    pygame.time.wait(100)  # Brief pause
     
     running = True
     while running:
@@ -151,17 +157,26 @@ def show_game_over(score: int, max_streak: int) -> None:
         draw_text(player_name, WIDTH//2 - 140, 270)
         
         # Draw high scores with dates
-        draw_text("High Scores:", WIDTH//2 - 150, 340)
+        high_score_start_y = 340
+        draw_text("High Scores:", WIDTH//2 - 150, high_score_start_y)
+        
+        # Calculate button position based on number of high scores
+        line_height = 35
+        last_line_y = high_score_start_y + 40  # Default if no scores
+        
         for i, score_data in enumerate(high_scores):
+            line_y = high_score_start_y + 40 + i * line_height
             score_text = f"{score_data['player']}: {score_data['score']}"
             date_text = f"({score_data.get('date', 'N/A')})"
-            draw_text(score_text, WIDTH//2 - 150, 390 + i * 40, font=SMALL_FONT)
-            draw_text(date_text, WIDTH//2 + 100, 390 + i * 40, font=SMALL_FONT)
+            draw_text(score_text, WIDTH//2 - 150, line_y, font=SMALL_FONT)
+            draw_text(date_text, WIDTH//2 + 100, line_y, font=SMALL_FONT)
+            last_line_y = line_y
         
-        # Draw save and play again buttons
+        # Draw save and play again buttons below the last score
+        button_y = min(last_line_y + 60, HEIGHT - 80)  # Ensure buttons don't go off screen
         save_text = "Score Saved!" if score_saved else "Save Score"
-        save_button = draw_button(save_text, WIDTH//2 - 220, HEIGHT - 100, 200, 50, selected=score_saved)
-        play_again = draw_button("Play Again", WIDTH//2 + 20, HEIGHT - 100, 200, 50)
+        save_button = draw_button(save_text, WIDTH//2 - 220, button_y, 200, 50, selected=score_saved)
+        play_again = draw_button("Play Again", WIDTH//2 + 20, button_y, 200, 50)
         
         # Draw message if timer is active
         if current_time < message_timer:
@@ -172,7 +187,7 @@ def show_game_over(score: int, max_streak: int) -> None:
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                return False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 # Check if clicked on name input field
                 name_input_rect = pygame.Rect(WIDTH//2 - 150, 260, 300, 50)
@@ -180,8 +195,8 @@ def show_game_over(score: int, max_streak: int) -> None:
                 
                 # Check button clicks
                 if save_button.collidepoint(event.pos) and not score_saved:
-                    # Only save if name has been changed from default
-                    if player_name != FAMILY["player"]:
+                    # Only save if name is not empty
+                    if player_name.strip():
                         save_high_score(score, player_name)
                         score_saved = True
                         name_input_active = False
@@ -190,11 +205,17 @@ def show_game_over(score: int, max_streak: int) -> None:
                         # Reload high scores to show updated list
                         high_scores = load_high_scores()
                     else:
-                        # Show message to change name
-                        message = "Please enter your name before saving"
+                        # Show message to enter name
+                        message = "Please enter your name"
                         message_timer = current_time + 2000
                 elif play_again.collidepoint(event.pos):
-                    return True
+                    # Clear screen and events before returning
+                    screen.fill(PINK)
+                    pygame.display.flip()
+                    pygame.event.clear()
+                    pygame.time.wait(100)  # Brief pause
+                    running = False
+                    return True  # Signal to restart game directly
             elif event.type == pygame.KEYDOWN and name_input_active:
                 if event.key == pygame.K_RETURN:
                     name_input_active = False
@@ -204,7 +225,7 @@ def show_game_over(score: int, max_streak: int) -> None:
                     player_name += event.unicode
         
         clock.tick(30)
-    return False
+    return False  # Return False if loop exits without clicking Play Again
 
 def generate_word_problem(num1: int, num2: int, operation: str) -> str:
     """Generate a word problem based on the numbers and operation."""
@@ -553,272 +574,301 @@ def draw_progress_bar(surface: pygame.Surface, x: int, y: int, width: int, heigh
         inner_width = int((width - 4) * progress)
         pygame.draw.rect(surface, color, (x + 2, y + 2, inner_width, height - 4))
 
+def reset_game_state(starting_level: int) -> dict:
+    """Reset and return all game state variables"""
+    return {
+        "streak": 0,
+        "max_streak": 0,
+        "progress": 0,
+        "wrong_attempts": 0,
+        "showing_answer": False,
+        "continue_button": None,
+        "level": starting_level,
+        "score": 0,
+        "previous_question": "",
+        "user_answer": "",
+        "reward_count": 0,
+        "message": "",
+        "message_timer": 0,
+        "question": None,
+        "answer": None
+    }
+
 def game_loop(starting_level: int) -> bool:
-    # Additional game state variables
-    streak = 0
-    max_streak = 0
-    progress = 0  # Progress towards next level (0.0 to 1.0)
-    wrong_attempts = 0  # Track consecutive wrong answers
-    showing_answer = False  # Flag to show if we're displaying the correct answer
-    continue_button = None  # Button for continuing after showing answer
-    """Main game loop."""
-    running = True
-    level = starting_level
-    score = 0
-    previous_question = ""  # Track previous question to avoid repeats
-    question, answer = generate_problem(level)
-    while question == previous_question:  # Ensure first question isn't repeated
-        question, answer = generate_problem(level)
-    user_answer = ""
-    reward_count = 0
-    message = ""
-    message_timer = 0
-
-    while running:
-        screen.fill(WHITE)
-        current_time = pygame.time.get_ticks()
-
-        # Event handling
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.MOUSEBUTTONDOWN and showing_answer and continue_button:
-                if continue_button.collidepoint(event.pos):
-                    # Reset state and generate new question
-                    showing_answer = False
-                    wrong_attempts = 0
-                    continue_button = None
-                    previous_question = question
-                    question, answer = generate_problem(level)
-                    while question == previous_question:
-                        question, answer = generate_problem(level)
-                    user_answer = ""
-            elif event.type == pygame.KEYDOWN and not showing_answer:
-                if event.key == pygame.K_RETURN and user_answer:
-                    # Check answer based on level type
-                    try:
-                        correct = False
-                        
-                        # Handle fraction inputs (e.g., "4/3" or "1 1/3")
-                        if "/" in user_answer and level == 3:
-                            parts = user_answer.split()
-                            if len(parts) > 1:  # Mixed number (e.g., "1 1/3")
-                                whole = int(parts[0])
-                                num, denom = map(int, parts[1].split("/"))
-                                user_value = whole + (num / denom)
-                            else:  # Improper fraction (e.g., "4/3")
-                                num, denom = map(int, user_answer.split("/"))
-                                user_value = num / denom
-                            # For fraction problems, compare the actual values
-                            correct = abs(user_value - answer) < 0.01
-                        else:
-                            # For non-fraction problems, convert to appropriate type
-                            user_value = float(user_answer) if level == 3 else int(user_answer)
-                            if isinstance(answer, float):
-                                # For decimal problems, allow small differences
-                                correct = abs(user_value - answer) < 0.01
+    """Run the main game loop and return True if player wants to play again."""
+    while True:
+        # Initialize game state
+        state = reset_game_state(starting_level)
+        state["question"], state["answer"] = generate_problem(state["level"])
+        
+        # Start game loop
+        running = True
+        start_time = pygame.time.get_ticks()
+        
+        while running:
+            screen.fill(WHITE)
+            current_time = pygame.time.get_ticks()
+            
+            # Check if time's up
+            remaining_time = max(0, 300 - (current_time - start_time) // 1000)
+            if remaining_time <= 0:
+                restart = show_game_over(state["score"], state["max_streak"])
+                if restart:
+                    # Reset game state and continue playing
+                    break  # Break inner loop to restart game
+                else:
+                    return False  # Return to main menu
+            
+            # Event handling
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return False
+                if event.type == pygame.MOUSEBUTTONDOWN and state["showing_answer"] and state["continue_button"]:
+                    if state["continue_button"].collidepoint(event.pos):
+                        # Reset state and generate new question
+                        state["showing_answer"] = False
+                        state["wrong_attempts"] = 0
+                        state["continue_button"] = None
+                        state["previous_question"] = state["question"]
+                        state["question"], state["answer"] = generate_problem(state["level"])
+                        while state["question"] == state["previous_question"]:
+                            state["question"], state["answer"] = generate_problem(state["level"])
+                        state["user_answer"] = ""
+                elif event.type == pygame.KEYDOWN and not state["showing_answer"]:
+                    if event.key == pygame.K_RETURN and state["user_answer"]:
+                        # Check answer based on level type
+                        try:
+                            correct = False
+                            
+                            # Handle fraction inputs (e.g., "4/3" or "1 1/3")
+                            if "/" in state["user_answer"] and state["level"] == 3:
+                                parts = state["user_answer"].split()
+                                if len(parts) > 1:  # Mixed number (e.g., "1 1/3")
+                                    whole = int(parts[0])
+                                    num, denom = map(int, parts[1].split("/"))
+                                    user_value = whole + (num / denom)
+                                else:  # Improper fraction (e.g., "4/3")
+                                    num, denom = map(int, state["user_answer"].split("/"))
+                                    user_value = num / denom
+                                # For fraction problems, compare the actual values
+                                correct = abs(user_value - state["answer"]) < 0.01
                             else:
-                                correct = user_value == answer
+                                # For non-fraction problems, convert to appropriate type
+                                user_value = float(state["user_answer"]) if state["level"] == 3 else int(state["user_answer"])
+                                if isinstance(state["answer"], float):
+                                    # For decimal problems, allow small differences
+                                    correct = abs(user_value - state["answer"]) < 0.01
+                                else:
+                                    correct = user_value == state["answer"]
                             
-                        if correct:
-                            # Correct answer handling
-                            score += 10 * (1 + streak // 5)  # Bonus points for streaks
-                            streak += 1
-                            max_streak = max(streak, max_streak)
-                            reward_count += 1
-                            progress = streak / 10  # Update progress (10 streak needed for level up)
-                            
-                            # Play appropriate sound effects
-                            if streak > 0 and streak % 5 == 0:  # Streak milestone (5, 10, etc.)
-                                streak_milestone_sound.play()
-                                message = f"🔥 {streak} STREAK! AMAZING! 🔥"
+                            if correct:
+                                # Correct answer handling
+                                state["score"] += 10 * (1 + state["streak"] // 5)  # Bonus points for streaks
+                                state["streak"] += 1
+                                state["max_streak"] = max(state["streak"], state["max_streak"])
+                                state["reward_count"] += 1
+                                state["progress"] = state["streak"] / 10  # Update progress (10 streak needed for level up)
                                 
-                                # Level up at streak of 10
-                                if streak % 10 == 0 and level < max(LEVELS.keys()):
-                                    level += 1
-                                    level_complete_sound.play()
-                                    message = f"🌟 Level Up! Now trying {LEVELS[level]['description']}! 🌟"
-                                    message_timer = current_time + 3000
-                                    progress = 0
+                                # Play appropriate sound effects
+                                if state["streak"] > 0 and state["streak"] % 5 == 0:  # Streak milestone (5, 10, etc.)
+                                    streak_milestone_sound.play()
+                                    state["message"] = f"🔥 {state['streak']} STREAK! AMAZING! 🔥"
+                                    
+                                    # Level up at streak of 10
+                                    if state["streak"] % 10 == 0 and state["level"] < max(LEVELS.keys()):
+                                        state["level"] += 1
+                                        level_complete_sound.play()
+                                        state["message"] = f"🌟 Level Up! Now trying {LEVELS[state['level']]['description']}! 🌟"
+                                        state["message_timer"] = current_time + 3000
+                                        state["progress"] = 0
+                                else:
+                                    correct_sound.play()
+                                    state["message"] = f"{random.choice(LEVELS[state['level']]['encouragement'])} ({state['streak']} streak!)"
+                                
+                                # Progress bar increase sound
+                                progress_sound.play()
+                                
+                                state["message_timer"] = current_time + 2000
+                                
+                                # Generate new question, ensuring it's different from the previous one
+                                state["previous_question"] = state["question"]
+                                state["question"], state["answer"] = generate_problem(state["level"])
+                                while state["question"] == state["previous_question"]:  # Avoid repeating the same question
+                                    state["question"], state["answer"] = generate_problem(state["level"])
                             else:
-                                correct_sound.play()
-                                message = f"{random.choice(LEVELS[level]['encouragement'])} ({streak} streak!)"
-                            
-                            # Progress bar increase sound
-                            progress_sound.play()
-                            
-                            message_timer = current_time + 2000
-                            
-                            # Generate new question, ensuring it's different from the previous one
-                            previous_question = question
-                            question, answer = generate_problem(level)
-                            while question == previous_question:  # Avoid repeating the same question
-                                question, answer = generate_problem(level)
-                        else:
-                            wrong_sound.play()
-                            wrong_attempts += 1
-                            if wrong_attempts >= 3:
-                                showing_answer = True
-                                message = f"The correct answer is: {answer}"
-                                message_timer = current_time + 5000  # Show for 5 seconds
-                                # Level down if not at level 1
-                                if level > 1:
-                                    level = max(1, level - 1)
-                                    message = f"Let's try {LEVELS[level]['description']} problems! The answer was {answer}"
-                                # Add continue button
-                                continue_button = pygame.Rect(WIDTH//2 - 100, HEIGHT - 150, 200, 50)
+                                wrong_sound.play()
+                                state["wrong_attempts"] += 1
+                                if state["wrong_attempts"] >= 3:
+                                    state["showing_answer"] = True
+                                    state["message"] = f"The correct answer is: {state['answer']}"
+                                    state["message_timer"] = current_time + 5000  # Show for 5 seconds
+                                    # Level down if not at level 1
+                                    if state["level"] > 1:
+                                        state["level"] = max(1, state["level"] - 1)
+                                        state["message"] = f"Let's try {LEVELS[state['level']]['description']} problems! The answer was {state['answer']}"
+                                    # Add continue button
+                                    state["continue_button"] = pygame.Rect(WIDTH//2 - 100, HEIGHT - 150, 200, 50)
+                                else:
+                                    state["message"] = f"Try again! ({state['wrong_attempts']}/3) 💫"
+                                state["message_timer"] = current_time + 2000
+                                state["streak"] = 0  # Reset streak on wrong answer
+                                state["reward_count"] = 0  # Reset reward count on wrong answer
+                                state["progress"] = state["streak"] / 10  # Update progress bar on wrong answer too
+                            state["user_answer"] = ""
+                        except ValueError:
+                            state["user_answer"] = ""
+                    elif event.key == pygame.K_BACKSPACE:
+                        state["user_answer"] = state["user_answer"][:-1]
+                    elif len(state["user_answer"]) < 15:  # Allow longer answers for mixed numbers
+                        # Allow digits for all levels
+                        if event.unicode.isdigit():
+                            state["user_answer"] += event.unicode
+                        # Allow decimal point, forward slash, and space for Level 3
+                        elif state["level"] == 3 and event.unicode in [".", "/", " "]:
+                            # Handle space separately
+                            if event.unicode == " ":
+                                # Only allow one space and only if there's already some input
+                                if " " not in state["user_answer"] and state["user_answer"]:
+                                    state["user_answer"] += " "
+                            # Handle decimal point and slash
                             else:
-                                message = f"Try again! ({wrong_attempts}/3) 💫"
-                            message_timer = current_time + 2000
-                            streak = 0  # Reset streak on wrong answer
-                            reward_count = 0  # Reset reward count on wrong answer
-                            progress = streak / 10  # Update progress bar on wrong answer too
-                        user_answer = ""
-                    except ValueError:
-                        user_answer = ""
-                elif event.key == pygame.K_BACKSPACE:
-                    user_answer = user_answer[:-1]
-                elif len(user_answer) < 15:  # Allow longer answers for mixed numbers
-                    # Allow digits for all levels
-                    if event.unicode.isdigit():
-                        user_answer += event.unicode
-                    # Allow decimal point, forward slash, and space for Level 3
-                    elif level == 3 and event.unicode in [".", "/", " "]:
-                        # Handle space separately
-                        if event.unicode == " ":
-                            # Only allow one space and only if there's already some input
-                            if " " not in user_answer and user_answer:
-                                user_answer += " "
-                        # Handle decimal point and slash
+                                # Split by space to check last part
+                                parts = state["user_answer"].split()
+                                # If no parts or the last part doesn't contain the symbol yet
+                                if not parts or event.unicode not in parts[-1]:
+                                    state["user_answer"] += event.unicode
+            
+            # Draw game state
+            screen.fill(PINK)
+            
+            # Create white header bar
+            header_height = 100
+            pygame.draw.rect(screen, WHITE, (0, 0, WIDTH, header_height))
+            pygame.draw.line(screen, PURPLE, (0, header_height), (WIDTH, header_height), 2)
+            
+            # Draw level and score in top left
+            draw_text(f"Level {state['level']}: {LEVELS[state['level']]['description']}", 20, 20)
+            draw_text(f"Score: {state['score']}", 20, 55)
+            
+            # Layout for header elements (right side)
+            right_margin = 20
+            timer_section_width = 150  # Width reserved for timer
+            streak_section_width = 200  # Width reserved for streak counters
+            
+            # Draw timer in far right
+            minutes = remaining_time // 60
+            seconds = remaining_time % 60
+            timer_text = f"Time: {minutes}:{seconds:02d}"
+            timer_surface = FONT.render(timer_text, True, BLACK)
+            timer_x = WIDTH - timer_surface.get_width() - right_margin
+            screen.blit(timer_surface, (timer_x, 20))
+            
+            # Draw streak counters to the left of timer
+            streak_x = timer_x - streak_section_width
+            if state["streak"] > 0:
+                streak_text = f"Streak: {state['streak']} 🔥"
+                text_surface = SMALL_FONT.render(streak_text, True, BLACK)
+                screen.blit(text_surface, (streak_x, 20))
+            if state["max_streak"] > 0:
+                best_text = f"Best: {state['max_streak']} ⭐"
+                text_surface = SMALL_FONT.render(best_text, True, BLACK)
+                screen.blit(text_surface, (streak_x, 50))
+            
+            # Draw progress bar below streak counters
+            progress_width = 150
+            progress_x = streak_x
+            draw_progress_bar(screen, progress_x, 75, progress_width, 15, state["progress"], PURPLE)
+            
+            # Draw problem with word wrapping if needed, adjusted for header
+            problem_start_y = header_height + 40  # Start below header
+            if len(state["question"]) > 50:  # If it's a longer word problem
+                words = state["question"].split()
+                lines = []
+                current_line = []
+                
+                for word in words:
+                    current_line.append(word)
+                    if len(' '.join(current_line)) > 40:  # Max chars per line
+                        if len(current_line) > 1:
+                            current_line.pop()
+                            lines.append(' '.join(current_line))
+                            current_line = [word]
                         else:
-                            # Split by space to check last part
-                            parts = user_answer.split()
-                            # If no parts or the last part doesn't contain the symbol yet
-                            if not parts or event.unicode not in parts[-1]:
-                                user_answer += event.unicode
+                            lines.append(' '.join(current_line))
+                            current_line = []
+                
+                if current_line:
+                    lines.append(' '.join(current_line))
+                
+                # Calculate total height needed for the problem text
+                text_height = len(lines) * 40
+                problem_y = problem_start_y
+                
+                # Draw each line of the problem
+                for i, line in enumerate(lines):
+                    draw_text(line, 20, problem_y + (i * 40))
+                draw_text("= ?", 20, problem_y + text_height + 10)
+                
+                # Draw answer box below the problem with padding
+                answer_y = problem_y + text_height + 60
+                pygame.draw.rect(screen, WHITE, (20, answer_y, 360, 50))
+                draw_text(f"Your Answer: {state['user_answer']}", 30, answer_y + 10)
+            else:
+                # For simple problems
+                draw_text(f"Problem: {state['question']} = ?", 20, 180)
+                
+                # Draw answer box with input format hint
+                pygame.draw.rect(screen, WHITE, (20, 230, 360, 50))
+                hint = "(Enter as mixed number like 1 1/3 or fraction like 4/3)" if state["level"] == 3 else ""
+                draw_text(f"Your Answer: {state['user_answer']} {hint}", 30, 240)
+            
+            # Calculate positions for images at the bottom
+            bottom_margin = 20
+            image_y = HEIGHT - unicorn_image.get_height() - bottom_margin
+            
+            # Draw unicorn on right side at the bottom
+            screen.blit(unicorn_image, (WIDTH - unicorn_image.get_width() - 20, image_y))
+            
+            # Draw rewards in a single row at the bottom (max 5 visible)
+            rewards_x = 20
+            rewards_spacing = 10
+            visible_rewards = min(state["reward_count"], 5)  # Limit to 5 visible rewards
+            for i in range(visible_rewards):
+                screen.blit(reward_image, (rewards_x + (i * (reward_image.get_width() + rewards_spacing)), image_y))
+            
+            # Draw message if timer is active
+            if current_time < state["message_timer"]:
+                message_surface = FONT.render(state["message"], True, PURPLE)
+                screen.blit(message_surface, (WIDTH//2 - message_surface.get_width()//2, HEIGHT - 80))
+                
+            # Draw continue button if showing answer
+            if state["showing_answer"] and state["continue_button"]:
+                draw_button("Continue", state["continue_button"].x, state["continue_button"].y, state["continue_button"].width, state["continue_button"].height)
+            
+            pygame.display.flip()
+            clock.tick(30)
+    
+    return True  # Continue playing
 
-        # Fill entire background with soft pink
+def main():
+    """Main game entry point."""
+    while True:
+        # Reset display and events before showing menu
         screen.fill(PINK)
-        
-        # Create white header bar
-        header_height = 100
-        pygame.draw.rect(screen, WHITE, (0, 0, WIDTH, header_height))
-        pygame.draw.line(screen, PURPLE, (0, header_height), (WIDTH, header_height), 2)
-        
-        # Draw level and score in top left
-        draw_text(f"Level {level}: {LEVELS[level]['description']}", 20, 20)
-        draw_text(f"Score: {score}", 20, 55)
-        
-        # Layout for header elements (right side)
-        right_margin = 20
-        timer_section_width = 150  # Width reserved for timer
-        streak_section_width = 200  # Width reserved for streak counters
-        
-        # Draw timer in far right
-        remaining_time = max(0, 300 - (current_time // 1000))  # 5 minutes
-        minutes = remaining_time // 60
-        seconds = remaining_time % 60
-        timer_text = f"Time: {minutes}:{seconds:02d}"
-        timer_surface = FONT.render(timer_text, True, BLACK)
-        timer_x = WIDTH - timer_surface.get_width() - right_margin
-        screen.blit(timer_surface, (timer_x, 20))
-        
-        # Draw streak counters to the left of timer
-        streak_x = timer_x - streak_section_width
-        if streak > 0:
-            streak_text = f"Streak: {streak} 🔥"
-            text_surface = SMALL_FONT.render(streak_text, True, BLACK)
-            screen.blit(text_surface, (streak_x, 20))
-        if max_streak > 0:
-            best_text = f"Best: {max_streak} ⭐"
-            text_surface = SMALL_FONT.render(best_text, True, BLACK)
-            screen.blit(text_surface, (streak_x, 50))
-        
-        # Draw progress bar below streak counters
-        progress_width = 150
-        progress_x = streak_x
-        draw_progress_bar(screen, progress_x, 75, progress_width, 15, progress, PURPLE)
-        # Check if time's up
-        if remaining_time <= 0:
-            return show_game_over(score, max_streak)
-            
-        # Draw problem with word wrapping if needed, adjusted for header
-        problem_start_y = header_height + 40  # Start below header
-        if len(question) > 50:  # If it's a longer word problem
-            words = question.split()
-            lines = []
-            current_line = []
-            
-            for word in words:
-                current_line.append(word)
-                if len(' '.join(current_line)) > 40:  # Max chars per line
-                    if len(current_line) > 1:
-                        current_line.pop()
-                        lines.append(' '.join(current_line))
-                        current_line = [word]
-                    else:
-                        lines.append(' '.join(current_line))
-                        current_line = []
-            
-            if current_line:
-                lines.append(' '.join(current_line))
-            
-            # Calculate total height needed for the problem text
-            text_height = len(lines) * 40
-            problem_y = problem_start_y
-            
-            # Draw each line of the problem
-            for i, line in enumerate(lines):
-                draw_text(line, 20, problem_y + (i * 40))
-            draw_text("= ?", 20, problem_y + text_height + 10)
-            
-            # Draw answer box below the problem with padding
-            answer_y = problem_y + text_height + 60
-            pygame.draw.rect(screen, WHITE, (20, answer_y, 360, 50))
-            draw_text(f"Your Answer: {user_answer}", 30, answer_y + 10)
-        else:
-            # For simple problems
-            draw_text(f"Problem: {question} = ?", 20, 180)
-            
-            # Draw answer box with input format hint
-            pygame.draw.rect(screen, WHITE, (20, 230, 360, 50))
-            hint = "(Enter as mixed number like 1 1/3 or fraction like 4/3)" if level == 3 else ""
-            draw_text(f"Your Answer: {user_answer} {hint}", 30, 240)
-        
-        # Calculate positions for images at the bottom
-        bottom_margin = 20
-        image_y = HEIGHT - unicorn_image.get_height() - bottom_margin
-        
-        # Draw unicorn on right side at the bottom
-        screen.blit(unicorn_image, (WIDTH - unicorn_image.get_width() - 20, image_y))
-        
-        # Draw rewards in a single row at the bottom (max 5 visible)
-        rewards_x = 20
-        rewards_spacing = 10
-        visible_rewards = min(reward_count, 5)  # Limit to 5 visible rewards
-        for i in range(visible_rewards):
-            screen.blit(reward_image, (rewards_x + (i * (reward_image.get_width() + rewards_spacing)), image_y))
-        
-        # Draw message if timer is active
-        if current_time < message_timer:
-            message_surface = FONT.render(message, True, PURPLE)
-            screen.blit(message_surface, (WIDTH//2 - message_surface.get_width()//2, HEIGHT - 80))
-            
-        # Draw continue button if showing answer
-        if showing_answer and continue_button:
-            draw_button("Continue", continue_button.x, continue_button.y, continue_button.width, continue_button.height)
-
         pygame.display.flip()
-        clock.tick(30)
+        pygame.event.clear()
+        pygame.time.wait(100)  # Brief pause for stability
+        
+        # Show main menu and get starting level
+        should_start, starting_level = main_menu()
+        if not should_start:
+            break
+        
+        # Run game loop
+        if not game_loop(starting_level):
+            break  # Exit if player quits
 
-# Game loop
-playing = True
-while playing:
-    should_start, starting_level = main_menu()
-    if should_start:
-        playing = game_loop(starting_level)
-    else:
-        playing = False
-
-pygame.quit()
-sys.exit()
+if __name__ == "__main__":
+    main()
+    pygame.quit()
+    sys.exit()

@@ -14,9 +14,10 @@ def convert_webp_to_png():
     }
     
     for src, dst in images.items():
-        if os.path.exists(src):
-            print(f"Converting {src} to {dst}...")
-            img = Image.open(src)
+        src_path = os.path.join("assets/images", src)
+        if os.path.exists(src_path):
+            print(f"Converting {src_path} to {dst}...")
+            img = Image.open(src_path)
             png_path = os.path.join("assets/images", dst)
             img.save(png_path, "PNG")
             print(f"Saved to {png_path}")
