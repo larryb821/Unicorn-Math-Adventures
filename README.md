@@ -2,7 +2,7 @@
 
 A magical math game that makes learning fun! Solve math problems with unicorns and rainbows while building math skills across multiple levels.
 
-![Game Screenshot](docs/images/screenshot.png)
+![Game Screenshot](screenshot.png)
 
 ## ✨ Features
 
